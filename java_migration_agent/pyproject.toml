@@ -3,7 +3,7 @@ name = "java-migration-agent"
 version = "0.1.0"
 description = "Java Migration Agent with LLM-based migration capabilities"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 
 dependencies = [
     # Core dependencies
@@ -12,8 +12,8 @@ dependencies = [
     "boto3>=1.40.41",
 
     # Strands framework for LLM agents
-    "strands-agents[openai]",
-    "strands-agents-tools==0.2.9",
+    "strands-agents[openai]>=1.18.0",
+    "strands-agents-tools>=0.2.16",
 
     # HuggingFace datasets
     "datasets>=2.14.0",
