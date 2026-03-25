@@ -13,7 +13,7 @@ dependencies = [
 
     # Strands framework for LLM agents
     "strands-agents[openai]>=1.18.0",
-    "strands-agents-tools==0.2.16",
+    "strands-agents-tools>=0.2.16",
 
     # HuggingFace datasets
     "datasets>=2.14.0",
