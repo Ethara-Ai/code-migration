@@ -15,6 +15,13 @@ class ModelConfig:
     max_retries: int = 3
     thinking_budget_tokens: int = 2048
 
+    #: "bedrock" (the paper's setup) or "anthropic" (api.anthropic.com, or any
+    #: compatible endpoint via base_url).
+    provider: str = "bedrock"
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    max_tokens: int = 8192
+
     @classmethod
     def from_dict(cls, config: dict) -> "ModelConfig":
         """Create ModelConfig from dictionary."""
@@ -68,8 +75,16 @@ class AgentConfig:
         "3. Update all dependencies to their Java 17 compatible versions"
     )
 
+    #: Task-supplied prompt, read from --instruction-file. The task format's
+    #: instruction.md is "the agent task description, verbatim", so when a task
+    #: supplies one it is the prompt -- otherwise editing it would change nothing
+    #: and every task would silently run the built-in text instead.
+    instruction: Optional[str] = None
+
     def get_system_prompt(self, agent_type: str) -> str:
-        """Get system prompt for specific agent type."""
+        """Get system prompt for specific agent type, or the task's own."""
+        if self.instruction:
+            return self.instruction
         prompts = {
             "baseline": self.baseline_system_prompt,
             "pe": self.baseline_pe_system_prompt,

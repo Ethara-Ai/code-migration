@@ -9,11 +9,11 @@ from typing import Optional, List, Any
 from strands import Agent
 from strands.agent.conversation_manager import NullConversationManager
 
-from java_migration_agent.config.settings import Config
-from java_migration_agent.core.repository import Repository
-from java_migration_agent.core.model_factory import create_bedrock_model
-from java_migration_agent.evaluation.evaluator import Evaluator
-from java_migration_agent.hooks.agent_hooks import MessageLimitHook, MaxMessageLimitException
+from strands_agent.config.settings import Config
+from strands_agent.core.repository import Repository
+from strands_agent.core.model_factory import create_model
+from strands_agent.evaluation.evaluator import Evaluator
+from strands_agent.hooks.agent_hooks import MessageLimitHook, MaxMessageLimitException
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class BaseMigrationAgent(ABC):
         Returns:
             Configured Strands Agent
         """
-        model = create_bedrock_model(self.config.model)
+        model = create_model(self.config.model)
         tools = self.get_tools()
         system_prompt = self.get_system_prompt()
 
@@ -101,7 +101,7 @@ class BaseMigrationAgent(ABC):
             hooks=[MessageLimitHook(max_messages=self.config.agent.max_messages)],
         )
 
-    def migrate(self, repository: Repository) -> dict:
+    def migrate(self, repository: Repository, skip_eval: bool = False) -> dict:
         """
         Execute migration on a repository.
 
@@ -125,19 +125,33 @@ class BaseMigrationAgent(ABC):
         messages = []
         max_success = False
         min_success = False
+        error = ""
 
         try:
             # Run the agent
             _ = self.agent(user_input)
             messages = self.agent.messages
         except MaxMessageLimitException as e:
+            # Hitting the turn budget is a normal outcome, not a broken run.
             logger.warning(f"Message limit reached: {e}")
             messages = self.agent.messages
         except Exception as e:
             logger.error(f"Error during migration: {e}")
             messages = self.agent.messages if hasattr(self.agent, "messages") else []
+            error = str(e)
 
-        # Evaluate migration results
+        # Evaluate migration results. Skipped when the caller grades separately:
+        # MigrationBench reaches GitHub, which an airgapped agent container must
+        # not, so grading happens outside in its own container.
+        if skip_eval:
+            logger.info("Skipping in-container evaluation; caller will grade")
+            return {
+                "messages": messages,
+                "max_success": None,
+                "min_success": None,
+                "error": error,
+            }
+
         try:
             max_success = self.evaluator.evaluate(
                 repo_path=repository.path,
@@ -156,6 +170,7 @@ class BaseMigrationAgent(ABC):
             "messages": messages,
             "max_success": max_success,
             "min_success": min_success,
+            "error": error,
         }
 
     def save_results(self, repo_id: str, results: dict) -> None:

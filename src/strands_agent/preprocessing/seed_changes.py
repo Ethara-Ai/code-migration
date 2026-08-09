@@ -3,8 +3,8 @@
 import logging
 from pathlib import Path
 
-from java_migration_agent.tools.dependency_tools import get_dependency_versions
-from java_migration_agent.tools.pom_tools import PomUtils
+from strands_agent.tools.dependency_tools import get_dependency_versions
+from strands_agent.tools.pom_tools import PomUtils
 
 logger = logging.getLogger(__name__)
 

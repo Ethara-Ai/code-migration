@@ -6,16 +6,36 @@ import subprocess
 
 from strands import tool
 
+# Set by Dockerfile.agent (and by MigrationBench's own image). When we are already
+# inside a per-repository container the container is the isolation boundary, and
+# the string-level path checks below are both redundant and unreliable -- they
+# only inspect `cd` targets and leading-slash absolute paths, so a relative
+# traversal such as `cat ../../../etc/passwd` walks straight past them.
+IN_CONTAINER = os.environ.get("DOCKER_CONTAINER") == "1"
+
+DEFAULT_SHELL_TIMEOUT = 300
+
+
+def _shell_timeout() -> int:
+    """Resolve the per-command timeout set by AgentConfig.apply_env_vars()."""
+    try:
+        return int(os.environ.get("SHELL_DEFAULT_TIMEOUT", DEFAULT_SHELL_TIMEOUT))
+    except ValueError:
+        return DEFAULT_SHELL_TIMEOUT
+
 
 def create_restricted_shell(allowed_path: str):
     """
-    Create a shell tool that only executes commands within allowed_path.
+    Create a shell tool that executes commands within allowed_path.
+
+    Outside a container the command string is checked for attempts to escape
+    allowed_path. Inside one (DOCKER_CONTAINER=1) that check is skipped.
 
     Args:
         allowed_path: The directory path where commands are allowed to execute
 
     Returns:
-        A Strands tool that executes shell commands with path restrictions
+        A Strands tool that executes shell commands
     """
     allowed_path = os.path.abspath(allowed_path)
 
@@ -79,10 +99,12 @@ def create_restricted_shell(allowed_path: str):
             Command output (stdout and stderr combined)
         """
         # Validate the command doesn't try to escape
-        is_valid, error_msg = validate_command(command)
-        if not is_valid:
-            return error_msg
+        if not IN_CONTAINER:
+            is_valid, error_msg = validate_command(command)
+            if not is_valid:
+                return error_msg
 
+        timeout = _shell_timeout()
         try:
             result = subprocess.run(
                 command,
@@ -90,12 +112,12 @@ def create_restricted_shell(allowed_path: str):
                 cwd=allowed_path,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=timeout,
             )
             output = result.stdout + result.stderr
             return output if output else "(no output)"
         except subprocess.TimeoutExpired:
-            return "Error: Command timed out after 300 seconds"
+            return f"Error: Command timed out after {timeout} seconds"
         except Exception as e:
             return f"Error executing command: {str(e)}"
 

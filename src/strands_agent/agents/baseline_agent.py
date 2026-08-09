@@ -4,9 +4,9 @@ from typing import List, Any
 
 from strands_tools import editor
 
-from java_migration_agent.config.settings import Config
-from java_migration_agent.core.base_agent import BaseMigrationAgent
-from java_migration_agent.tools.shell_tools import create_restricted_shell
+from strands_agent.config.settings import Config
+from strands_agent.core.base_agent import BaseMigrationAgent
+from strands_agent.tools.shell_tools import create_restricted_shell
 
 
 class BaselineAgent(BaseMigrationAgent):

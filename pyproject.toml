@@ -11,8 +11,9 @@ dependencies = [
     "packaging>=21.0",
     "boto3>=1.40.41",
 
-    # Strands framework for LLM agents
-    "strands-agents[openai]>=1.18.0",
+    # Strands framework for LLM agents. The anthropic extra backs
+    # --model-provider anthropic.
+    "strands-agents[openai,anthropic]>=1.18.0",
     "strands-agents-tools>=0.2.16",
 
     # HuggingFace datasets
@@ -20,7 +21,10 @@ dependencies = [
     "huggingface-hub>=0.16.0",
 
     # Evaluation from migration-bench
-    "migrationbench@git+https://github.com/amazon-science/MigrationBench.git",
+    # Pinned: r5 grades against a 240-entry dependency_version.json inside this
+    # repo, so a floating ref would make maximal verdicts depend on whatever
+    # main said that day.
+    "migrationbench@git+https://github.com/amazon-science/MigrationBench.git@d705e9b1a8b6fb24212248a373dfd3fbae614d07",
 ]
 
 [build-system]
@@ -31,7 +35,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/java_migration_agent"]
+packages = ["src/strands_agent"]
 
 [tool.uv]
 # UV-specific configuration

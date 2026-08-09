@@ -4,11 +4,11 @@ from typing import List, Any
 
 from strands_tools import editor
 
-from java_migration_agent.config.settings import Config
-from java_migration_agent.core.base_agent import BaseMigrationAgent
-from java_migration_agent.core.repository import Repository
-from java_migration_agent.preprocessing import update_jdk_related, update_dependency_version
-from java_migration_agent.tools.shell_tools import create_restricted_shell
+from strands_agent.config.settings import Config
+from strands_agent.core.base_agent import BaseMigrationAgent
+from strands_agent.core.repository import Repository
+from strands_agent.preprocessing import update_jdk_related, update_dependency_version
+from strands_agent.tools.shell_tools import create_restricted_shell
 
 
 class HybridAgent(BaseMigrationAgent):

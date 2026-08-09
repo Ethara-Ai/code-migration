@@ -76,6 +76,13 @@ class Repository:
         """
         Generate a git diff showing all changes since base_commit.
 
+        Build output is excluded. Some repositories commit `target/`, so a plain
+        diff carries binary .class hunks -- and a patch containing those cannot be
+        applied by `git apply` ("cannot apply binary patch without full index
+        line"). That makes the diff unusable both as a MigrationBench input and as
+        a task oracle. They are derived artifacts that `mvn clean verify`
+        regenerates, so excluding them changes nothing that is graded.
+
         Returns:
             Diff output string
         """
@@ -84,7 +91,8 @@ class Repository:
 
         try:
             result = subprocess.run(
-                ["git", "diff", self.base_commit],
+                ["git", "diff", self.base_commit, "--",
+                 ".", ":(exclude)target/*", ":(exclude)*/target/*"],
                 cwd=self.path,
                 capture_output=True,
                 text=True,
@@ -116,6 +124,63 @@ def _get_base_commit_id(repo_path: str) -> Optional[str]:
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None
+
+
+def _harden_git_history(repo_path: str, base_commit: str) -> None:
+    """
+    Make every commit that is not an ancestor of base_commit unreachable.
+
+    `git clone` fetches the whole history, so for any repository that was later
+    migrated to Java 17 upstream the answer is still sitting in `git log --all`
+    after we check out the base commit -- and the agent has shell access. Detach
+    at the base commit, drop all other refs, remotes and reflogs, then verify
+    that nothing but the base commit's ancestry survived.
+
+    Args:
+        repo_path: Path to the cloned repository
+        base_commit: The commit the agent is supposed to start from
+
+    Raises:
+        ValueError: If the repository is not left at exactly base_commit's history
+    """
+
+    def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=check,
+        )
+
+    logger.info(f"Hardening git history at {base_commit}")
+
+    git("checkout", "--detach", base_commit)
+
+    for remote in git("remote").stdout.split():
+        git("remote", "remove", remote, check=False)
+
+    for ref in git("for-each-ref", "--format=%(refname)").stdout.split():
+        git("update-ref", "-d", ref, check=False)
+
+    git("reflog", "expire", "--expire=now", "--all", check=False)
+    git("gc", "--prune=now", check=False)
+
+    head = git("rev-parse", "HEAD").stdout.strip()
+    if head != base_commit:
+        raise ValueError(f"HEAD is {head} after hardening, expected {base_commit}")
+
+    # `--all` covers every remaining ref plus detached HEAD, so once the other
+    # refs are gone it should describe exactly the base commit's ancestry.
+    reachable = git("rev-list", "--all", "--count").stdout.strip()
+    from_head = git("rev-list", "HEAD", "--count").stdout.strip()
+    if reachable != from_head:
+        raise ValueError(
+            f"{reachable} commits reachable but only {from_head} from HEAD: "
+            "history hardening left future commits in place"
+        )
+
+    logger.info(f"History hardened: {from_head} commits, all ancestors of {base_commit}")
 
 
 def _load_repo_from_huggingface(dataset_name: str, repo_id: str, exp_id: str) -> str:
@@ -208,5 +273,13 @@ def _load_repo_from_huggingface(dataset_name: str, repo_id: str, exp_id: str) ->
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to checkout base_commit {base_commit}: {e.stderr}")
             raise ValueError(f"Failed to checkout base_commit {base_commit}")
+
+        _harden_git_history(repo_path, base_commit)
+    else:
+        logger.warning(
+            "No base_commit for %s: skipping history hardening, the full upstream "
+            "history stays reachable from the working tree",
+            repo_id,
+        )
 
     return repo_path
