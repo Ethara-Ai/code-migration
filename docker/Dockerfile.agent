@@ -1,0 +1,98 @@
+# Agent image for fully containerized migration runs.
+#
+# Layer 2 on top of MigrationBench's evaluation image, which already provides
+# JDK 17, Maven 3.9.6, git and the `migration_bench` package. Adding the agent
+# here means the migration AND its grading happen inside one container against a
+# single toolchain -- so r2 (compiled class major version 61) no longer depends
+# on whatever JDK the host happens to have.
+#
+# Build the base first (from a MigrationBench checkout):
+#   docker build -t migration-bench:latest .
+#
+# Then, from this repository root:
+#   docker build -f Dockerfile.agent -t java-migration-agent:$(git rev-parse --short HEAD) .
+#
+# `runner/docker_runner.py` does both automatically.
+
+ARG BASE_IMAGE=migration-bench:latest
+FROM ${BASE_IMAGE}
+
+USER root
+WORKDIR /opt/java-migration-agent
+
+# Debian's /etc/profile rewrites PATH from scratch, so a login shell (`bash -lc`)
+# loses the base image's ENV PATH and with it /opt/maven/bin. `docker exec` and
+# the agent's own `sh -c` are unaffected, but anything invoked as a login shell
+# would silently lose mvn. profile.d runs after /etc/profile, so this sticks.
+RUN printf 'export MAVEN_HOME=/opt/maven\nexport PATH=$MAVEN_HOME/bin:$PATH\n' \
+    > /etc/profile.d/maven_env.sh
+
+ENV MAVEN_LOCAL_REPO=/opt/m2
+RUN mkdir -p /opt/m2 \
+ && printf '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">\n  <localRepository>/opt/m2</localRepository>\n</settings>\n' \
+    > /opt/maven/conf/settings.xml \
+ && chown -R migrationbench:migrationbench /opt/m2
+
+# The coordinate list is copied on its own, before anything else from src, so
+# this layer is invalidated only when the list itself changes. Copying it as part
+# of `COPY src` would re-fetch 240 coordinates -- roughly fourteen minutes -- on
+# every edit to any source file, which is most of the cost of an iteration.
+COPY src/strands_agent/data/dependency_version.json /opt/targets.json
+
+ARG STAGE_TARGETS=1
+RUN test "${STAGE_TARGETS}" = "1" || exit 0; \
+    LIST=/opt/targets.json; \
+    if [ ! -f "$LIST" ]; then echo "no dependency_version.json; nothing staged"; exit 0; fi; \
+    python3 -c "import json,sys; [sys.stdout.write(f'{k}:{v}\\n') for k,v in json.load(open('$LIST')).items()]" > /tmp/targets.txt; \
+    n=0; while IFS= read -r c; do \
+      mvn -q -B dependency:get -Dartifact="$c" -Dtransitive=true >/dev/null 2>&1 && n=$((n+1)); \
+    done < /tmp/targets.txt; \
+    rm -f /tmp/targets.txt; \
+    chown -R migrationbench:migrationbench /opt/m2; \
+    echo "staged $n target coordinate(s) into /opt/m2"
+
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+# migration_bench is already installed in the base image; this resolves the
+# remaining agent dependencies (strands, datasets, boto3).
+RUN uv pip install --system -e . \
+    && chown -R migrationbench:migrationbench /opt/java-migration-agent
+
+# Repository workspaces and the artifact drop that the host copies back out.
+RUN mkdir -p /tmp/workdir /out \
+    && chown -R migrationbench:migrationbench /tmp/workdir /out
+
+# Stage the Java-17 target artifacts while the network is still open.
+#
+# This is the offline package store the reference corpus builds for pip and apt,
+# in Maven form: with a strict airgap the agent has no route out, so anything a
+# maximal migration needs must already be on disk. The coordinate list is
+# JavaMigration's own dependency_version.json -- the same 240 entries
+# MigrationBench's r5 grades against, so what is staged is exactly what a maximal
+# migration is allowed to want, and is reachable for nothing else.
+#
+# It lives here rather than in the task image because the list does not vary by
+# repository: staged once, every task inherits it. In the task image it would sit
+# below the clone and be re-fetched per repository -- 240 coordinates at roughly
+# 9s each is over half an hour, which is once here and 300 times there.
+# One repository both users read. The build runs as root and the agent runs as
+# migrationbench, so a cache warmed into /root/.m2 sits behind mode 700 and the
+# agent never sees it -- it re-downloads everything from Maven Central on its own
+# clock, which is the cost the warm exists to remove. With a strict airgap that
+# is not merely wasteful but fatal: no cache and no route out. Setting it in the
+# global settings.xml makes it ambient, so the agent gets it without being told.
+#
+# Owned by the agent rather than merely readable by it: a read-only repository
+# fails with AccessDeniedException the moment the agent resolves anything not
+# staged, which is every allowlist-mode run and every repository whose
+# dependencies the target list does not cover. Root writes to it regardless.
+USER migrationbench
+
+# DOCKER_CONTAINER is what tools/shell_tools.py keys off to skip host-side path
+# validation: inside here the container itself is the boundary.
+ENV PYTHONUNBUFFERED=1 \
+    DOCKER_CONTAINER=1
+
+CMD ["python", "-m", "strands_agent.main", "--help"]

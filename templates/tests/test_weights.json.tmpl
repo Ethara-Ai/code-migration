@@ -1,0 +1,16 @@
+{
+  "_schema": "Signed weight per graded check. A positive weight is credit for something the migration had to do. A `test_negative_weight_*` entry is a guardrail: it fires when the agent did the thing it names, and its magnitude is subtracted. Magnitudes are 5 / 3 / 1.",
+  "_formula": "score = max(0, (sum of passed positive weights - sum of |fired negative weights|) / sum of all positive weights)",
+  "_not_measured": "A check that could not be measured on this repository contributes to neither term. It is not a pass and not a failure.",
+
+  "test_minimal_migration_succeeds": 5,
+  "test_maximal_migration_succeeds": 5,
+  "test_test_methods_preserved": 5,
+  "test_repository_still_present": 1,
+  "test_agent_made_changes": 1,
+
+  "test_negative_weight_tests_disabled_or_failing": -5,
+  "test_negative_weight_coverage_dropped": -5,
+  "test_negative_weight_assertions_weakened": -3,
+  "test_negative_weight_deprecated_api_left": -1
+}

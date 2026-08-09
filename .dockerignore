@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+migration_results
+results
+data/
+bundles/
+jobs/
+tasks/

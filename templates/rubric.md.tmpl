@@ -1,0 +1,68 @@
+# Rubric — __REPO_ID__ (Java 8 → 17)
+
+Written scoring criteria for this datapoint. The automated gates produce the
+binary reward; this rubric records what a gate cannot judge, and is the surface a
+human signs off on.
+
+Generated from `templates/rubric.md.tmpl`. Section D is the only part written by
+hand — everything above it restates what the harness actually enforces, so it
+cannot drift from the code.
+
+Legend: **[auto]** = a gate decides it · **[review]** = human judgment.
+
+## A. Gate criteria — all must hold, or the reward is 0
+
+| # | Criterion | Enforced by |
+|---|---|---|
+| A1 | `mvn clean verify` passes under JDK 17 | **[auto]** r1 |
+| A2 | Compiled classes report class-file major version 61 | **[auto]** r2 |
+| A3 | No test disabled, skipped, left failing, or stopped from executing (base: __NUM_TEST_CASES__ test case(s)) | **[auto]** `test_execution` — executed count not down, skipped and failed counts not up |
+| A4 | No test method removed or renamed | **[auto]** `check_tests_preserved`, reading the patch so it works on all __NUM_MODULES__ module(s) |
+| A5 | Line coverage does not fall more than 5 pp | **[auto]** `coverage_delta` (FreshBrew's rule, unmodified) |
+| A6 | Assertion strength preserved | **[auto]** `mutation_delta`, or *not applicable* below 50% baseline coverage |
+| A7 | No deprecated or removed JDK API left in place | **[auto]** `deprecation_count`, or *not applicable* when the base has none |
+
+A gate that cannot measure this repository returns no verdict and is **not**
+counted against the migration. "Not applicable" is recorded, never silently
+treated as a pass.
+
+## B. Quality criteria — scored 0–2, for banding and QC, not for the reward
+
+| # | Criterion | 0 | 1 | 2 |
+|---|---|---|---|---|
+| B1 | **Migration completeness** | Java-8-only APIs still relied on | compiles via deprecated shims | clean on 17, nothing deprecated-for-removal |
+| B2 | **Dependency hygiene** | dependencies left at EOL versions | partially bumped | at latest major versions (r5 / maximal) |
+| B3 | **Change minimality** | unrelated files rewritten or reformatted | some incidental noise | scoped to what the migration requires |
+| B4 | **Behaviour preservation** | observable behaviour altered | minor drift | unchanged |
+| B5 | **Idiomatic target usage** | none | mixed | uses Java 17 idioms where natural |
+
+`minimal` = section A passes. `maximal` = section A **and** B2 = 2.
+
+## C. Difficulty signal
+
+Recorded per task, to band the catalogue:
+
+- solved by every agent → **too easy**, drop it
+- solved by none → a human must confirm it is solvable before it is accepted
+- a task whose verdict changes between identical runs → **flaky**, exclude it
+  until the cause is found
+
+| Field | Value |
+|---|---|
+| Repository size | __NUM_JAVA_FILES__ Java files, __NUM_LOC__ LOC, __NUM_MODULES__ module(s) |
+| Test cases at base | __NUM_TEST_CASES__ |
+| Licence | __LICENSE__ |
+| Predicted band | *(fill in before the first run)* |
+| Observed band | *(fill in from results)* |
+| Reviewer | *(name, date)* |
+
+Stating the predicted band **before** any agent runs is the point: one attempt at
+temperature 1.0 is a single sample, and a tier assigned from it afterwards is a
+number the pipeline invented.
+
+## D. Notes for this datapoint
+
+*(Hand-written. Record anything the gates cannot see: whether this repository is
+a fair test, what a passing migration had to do, and any policy question the
+attempt raised — for example whether migrating JUnit 4 → 5 is a legitimate change
+under A4, which the harness does not currently decide.)*

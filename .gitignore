@@ -15,3 +15,15 @@ log.*
 
 /.idea
 src/logs
+# --- harness ---
+.venv/
+venv/
+results/
+jobs/
+bundles/
+migration_results/
+*.db
+# Task bundles are generated: build_tasks.py rebuilds them from
+# data/migrations.jsonl, which carries the frozen base and golden
+# commit hashes.
+tasks/
