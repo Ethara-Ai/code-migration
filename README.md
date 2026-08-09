@@ -1,180 +1,226 @@
-# ☕ JavaMigration
-<table>
-  <tr>
-    <td style="padding: 0;">
-      <a href="https://huggingface.co/collections/AmazonScience/migrationbench-68125452fc21a4564b92b6c3">
-        <img src="https://img.shields.io/badge/-🤗 MigrationBench-4d5eff?style=flatten&labelColor" alt="MigrationBench (Hugging Face)">
-      </a>
-    </td>
-    <td style="padding: 0;">
-      <a href="https://github.com/amazon-science/MigrationBench">
-        <img src="https://img.shields.io/badge/MigrationBench-000000?style=flatten&logo=github" alt="MigrationBench (GitHub)">
-      </a>
-    </td>
-    <td style="padding: 0;">
-      <a href="https://github.com/amazon-science/JavaMigration">
-        <img src="https://img.shields.io/badge/JavaMigration-000000?style=flatten&logo=github&logoColor=white" alt="JavaMigration (GitHub)">
-      </a>
-    </td>
-    <td style="padding: 0;">
-      <a href="https://arxiv.org/abs/2505.09569">
-        <img src="https://img.shields.io/badge/arXiv-2505.09569-b31b1b.svg?style=flatten" alt="MigrationBench (arXiv)">
-      </a>
-    </td>
-    <td style="padding: 0; padding-left: 10px; vertical-align: middle;">
-      <a href="https://huggingface.co/datasets/AmazonScience/migration-bench-java-full">
-        <img src="https://img.shields.io/badge/-🤗 java--full-8a98ff?style=flat&labelColor" alt="java-full">
-      </a>
-    </td>
-    <td style="padding: 0; vertical-align: middle;">
-      <a href="https://huggingface.co/datasets/AmazonScience/migration-bench-java-selected">
-        <img src="https://img.shields.io/badge/-🤗 java--selected-8a98ff?style=flat&labelColor" alt="java-selected">
-      </a>
-    </td>
-  </tr>
-</table>
+# code-migration
 
+Containerized evaluation of Java 8 → 17 migration agents.
 
-🚀 Repository for automated Java code migration research, part of the [MigrationBench](https://huggingface.co/collections/AmazonScience/migrationbench-68125452fc21a4564b92b6c3) project.
+One container per repository. The agent runs inside it, isolated from the
+network except an allowlist; the grader runs afterwards in a separate container
+and never sees the agent's filesystem. Tasks and results are written in
+[Harbor](https://github.com/harbor-framework/harbor)'s on-disk format, so they
+are portable — but Harbor never drives anything.
 
-<!-- toc -->
+Built on two upstream projects, both used as released:
 
-- [1. Overview](#1-overview)
-- [2. MigrationBench Datasets](#2-migrationbench-datasets)
-- [3. Installation](#3-installation)
-  * [3.1 Prerequisites](#31-prerequisites)
-  * [3.2 Install Package](#32-install-package)
-- [4. Usage](#4-usage)
-  * [4.1 Agent Types](#41-agent-types)
-  * [4.2 Running Migration](#42-running-migration)
-  * [4.3 Command Line Options](#43-command-line-options)
-- [5. Data](#5-data)
-- [6. Resources](#6-resources)
-- [7. Citation](#7-citation)
+| | Role | Source |
+|---|---|---|
+| **JavaMigration** | the agent under evaluation — Strands agents (`baseline`, `pe`, `rag`, `hybrid`) | this repository's history derives from [amazon-science/JavaMigration](https://github.com/amazon-science/JavaMigration) |
+| **MigrationBench** | the grader — criteria r1–r5, and the JDK 17 + Maven image | pinned dependency, [amazon-science/MigrationBench](https://github.com/amazon-science/MigrationBench)@`d705e9b` |
+| **Harbor** | task and job *format* only — parsed and validated, never executed | [harbor-framework/harbor](https://github.com/harbor-framework/harbor) |
 
-<!-- tocstop -->
+---
 
-## 1. Overview
+## Install
 
-**JavaMigrationAgent** is a library for automated code migration from Java 8 to Java 17 (21) using LLM-based agents built on the [Strands Agents](https://strandsagents.com/latest/) framework.
-
-It provides multiple agent strategies for migration:
-1. **Baseline**: Direct LLM-based migration
-1. **PE (Prompt Engineering)** (Baseline + PE): Baseline with enhanced prompts for dependency updates
-1. **RAG** (Baseline + PE + RAG): Uses retrieval-augmented generation for dependency version lookup
-1. **Hybrid** (Seed change, followed by baseline + PE): Pre-processes dependencies before LLM migration (More cost effective)
-
-The agent relies on the [MigrationBench](https://github.com/amazon-science/MigrationBench) package for evaluation.
-
-## 2. [🤗 MigrationBench](https://huggingface.co/collections/AmazonScience/migrationbench-68125452fc21a4564b92b6c3) Datasets
-
-| Index | Dataset                                       | Size  | Notes                                                                                               |
-|-------|-----------------------------------------------|-------|-----------------------------------------------------------------------------------------------------|
-| 1     | [🤗 AmazonScience/migration-bench-java-full](https://huggingface.co/datasets/AmazonScience/migration-bench-java-full)         | 5,102 | Each repo has a test directory or at least one test case                              |
-| 2     | [🤗 AmazonScience/migration-bench-java-selected](https://huggingface.co/datasets/AmazonScience/migration-bench-java-selected) |   300 | A **subset** of migration-bench-java-full                                          |
-
-## 3. Installation
-
-### 3.1 Prerequisites
-
-Verify you have `java 17` and `maven 3.9.6` installed:
+Docker must be running. Everything else installs into a virtualenv.
 
 ```bash
-# java
-$ java --version
-openjdk 17.0.15 2025-04-15 LTS
-OpenJDK Runtime Environment Corretto-17.0.15.6.1 (build 17.0.15+6-LTS)
-OpenJDK 64-Bit Server VM Corretto-17.0.15.6.1 (build 17.0.15+6-LTS, mixed mode, sharing)
+uv venv --python 3.12 && uv pip install -e .
 ```
+
+A model endpoint is needed only to *run an agent*. Building and validating
+tasks needs none. Configure it the way your provider expects; see
+`--model-provider` and `--model-base-url` below.
+
+---
+
+## End to end, in four commands
+
+The short version. Each step is explained below.
 
 ```bash
-# maven
-$ mvn --version
-Apache Maven 3.9.6 (bc0240f3c744dd6b6ec2920b3cd08dcc295161ae)
-Maven home: /usr/local/bin/apache-maven-3.9.6
-Java version: 17.0.15, vendor: Amazon.com Inc., runtime: /usr/lib/jvm/java-17-amazon-corretto.x86_64
-```
-If you haven't done it yet, follow the instructions in [MigrationBench](https://github.com/amazon-science/MigrationBench) to install Maven.
+# 1. find repositories whose maintainers already migrated, and build tasks
+python script/build_tasks.py all --limit 20
 
-### 3.2 Install Package
+# 2. prove one is solvable: both sides build and test green
+python script/build_tasks.py validate --repos gbif/name-parser
+
+# 3. run the reference solution through the real grading path -- must score 1.0
+python eval/run_batch.py --agent-type oracle --repos gbif/name-parser
+
+# 4. run an agent against it
+python eval/run_batch.py --agent-type rag --repos gbif/name-parser
+```
+
+---
+
+## 1. Build tasks
+
+A task needs two things: a repository as it was before migrating, and a
+migration known to be correct. `build_tasks.py` finds both.
+
+Many of the dataset's repositories were migrated off Java 8 by their own
+maintainers, after the base commit. That patch is human-authored, reviewed,
+merged and shipped, and no benchmark certified it — which is what makes it
+usable as a reference.
+
+Seven stages, cheapest first, so the expensive ones only run on survivors:
+
+| Stage | What it asks | Cost |
+|---|---|---|
+| `candidate` | every dataset row | free |
+| `filter` | did this project leave Java 8? | 1 API call per repo |
+| `locate` | which commit carries it to 17? | ~log₂(n) calls |
+| `isolate` | is the migration separable from unrelated work? | 1 compare |
+| `generate` | render the task bundle | local |
+| `emit` | write `fix.patch` and `test.patch` | 1 diff fetch |
+| `validate` | do both sides build and test green? | 2 image builds, 2 suite runs |
+
+Run them together or one at a time:
 
 ```bash
-# cd .../JavaMigration/
-
-pip install -r requirements.txt -e .
+python script/build_tasks.py all --limit 20      # every stage
+python script/build_tasks.py filter              # just one
+python script/build_tasks.py report              # what survived, and why the rest did not
 ```
 
-Or with uv:
+State lives in `data/migrations.jsonl`, one row per repository. A run that dies
+resumes where it stopped and nothing is fetched twice. Every rejection records
+its reason, so the repositories that did *not* become tasks are accountable
+rather than silently absent.
+
+```
+  300 repositories
+    isolated     11
+    validated     3
+    rejected    286
+
+  rejected, by reason:
+     150  tip still on Java 8
+     120  no Java version declared in the root pom at tip
+       9  reached only Java 11, never 17
+       3  not separable
+```
+
+## 2. Validate
+
+A task is not usable until it is proven solvable. `validate` runs the suite
+twice:
+
+```
+base commit,  JDK 8   →  must build and pass
+base + golden, JDK 17 →  must build and pass
+```
+
+A task that fails either is not a hard task, it is a broken one — and grading an
+agent on it produces a zero that reads as agent failure.
 
 ```bash
-# cd .../JavaMigration/
-
-uv pip install -e .
+python script/build_tasks.py validate --repos gbif/name-parser
 ```
 
-## 4. Usage
+```
+  gbif/name-parser VALIDATED: base 186 tests -> golden 193 tests
+```
 
-See the full binary script at [src/java_migration_agent/main.py](https://github.com/amazon-science/JavaMigration/blob/main/src/java_migration_agent/main.py).
+Transient faults retry rather than reject: a clone that drops mid-transfer costs
+a retry, never a task.
 
+## 3. Run the reference solution
 
-### 4.1 Agent Types
-
-| Agent Type | Description |
-|------------|-------------|
-| `baseline` | Direct LLM migration with `mvn clean verify` |
-| `pe`       | Baseline with prompt engineering for dependency updates |
-| `rag`      | Uses dependency version lookup tool for migration |
-| `hybrid`   | Pre-processes pom.xml dependencies before LLM migration |
-
-### 4.2 Running Migration
-
-Run batch migration on the MigrationBench dataset:
+Before measuring an agent, confirm the whole grading path works by putting the
+reference solution in the agent's seat. Same containers, same grading, same
+reward — the only difference is what produces the patch.
 
 ```bash
-python -m java_migration_agent \
-    --agent-type baseline \
-    --exp-id exp-001 \
-    --hf-dataset AmazonScience/migration-bench-java-selected \
-    --model-id global.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-    --max-workers 8 \
-    --output-dir ./migration_results
+python eval/run_batch.py --agent-type oracle --repos gbif/name-parser
 ```
 
-### 4.3 Command Line Options
+It must score **1.0**. Anything less means something in the harness is wrong,
+not the migration — the patch is one the maintainers merged. The per-check
+breakdown says which part.
 
+## 4. Run an agent
 
-| Flag   | Type | Default | Description |
-|--------|------|---------|-------------|
-| `--agent-type` | `str` | (required) | Agent type: `baseline`, `pe`, `rag`, or `hybrid` |
-| `--exp-id` | `str` | (required) | Experiment identifier for organizing results |
-| `--hf-dataset` | `str` | `AmazonScience/migration-bench-java-selected` | HuggingFace dataset name |
-| `--model-id` | `str` | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | Bedrock model ID |
-| `--temperature` | `float` | `1.0` | Model temperature |
-| `--max-messages` | `int`  | `80` | Maximum messages per conversation |
-| `--max-workers` | `int`  | `8` | Maximum parallel workers |
-| `--output-dir` | `str` | `./migration_results` | Output directory for results |
-
-## 5. 📊 Data
-
-Agent trajectories and execution results are stored in the `data/` folder.
-
-## 6. 🔗 Resources
-
-1. 🤗 [MigrationBench (Hugging Face)](https://huggingface.co/collections/AmazonScience/migrationbench-68125452fc21a4564b92b6c3)
-1. 💻 [MigrationBench (GitHub)](https://github.com/amazon-science/MigrationBench)
-1. 📄 [arXiv Paper](https://arxiv.org/abs/2505.09569)
-
-
-## 7. 📚 Citation
-
-```bibtex
-@misc{liu2025migrationbenchrepositorylevelcodemigration,
-      title={MigrationBench: Repository-Level Code Migration Benchmark from Java 8},
-      author={Linbo Liu and Xinle Liu and Qiang Zhou and Lin Chen and Yihan Liu and Hoan Nguyen and Behrooz Omidvar-Tehrani and Xi Shen and Jun Huan and Omer Tripp and Anoop Deoras},
-      year={2025},
-      eprint={2505.09569},
-      archivePrefix={arXiv},
-      primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2505.09569},
-}
+```bash
+python eval/run_batch.py \
+    --agent-type rag \
+    --repos gbif/name-parser \
+    --airgap
 ```
+
+`--airgap` puts the agent on an internal network whose only exit is an
+allowlisting proxy, so the upstream repository — and therefore the answer —
+cannot be re-fetched. `--resume` skips repositories that already finished;
+resume is a directory test, not bookkeeping, because a trial directory is
+claimed atomically.
+
+Agent types: `baseline`, `pe`, `rag`, `hybrid`, and `oracle`.
+
+### Models
+
+`--model-provider` selects the provider and `--model-id` the model.
+`--model-base-url` points at an alternative endpoint; a loopback address is
+rewritten so the container can reach a service bound to the host.
+
+---
+
+## Where the output goes
+
+```
+bundles/<owner>__<repo>/
+    task.toml · instruction.md · TRUTH.md · rubric.json · rubric.md
+    environment/Dockerfile
+    solution/{fix.patch, test.patch, solve.sh}
+    tests/{test.sh, test_outputs.py, test_weights.json}
+    trajectories/<model>/<agent>/run_N/
+        result.json          verdicts and timings
+        agent/               the patch, the exit code
+        verifier/            reward.txt · ctrf.json · test_function_outputs.json
+        artifacts/           trajectory, logs
+```
+
+The two files worth reading after a run:
+
+```bash
+cat bundles/<task>/trajectories/<model>/<agent>/run_1/result.json
+cat bundles/<task>/trajectories/<model>/<agent>/run_1/verifier/test_function_outputs.json
+```
+
+`result.json` carries `minimal` and `maximal` — MigrationBench's own verdicts,
+comparable to the paper — alongside each check's outcome.
+`test_function_outputs.json` carries the score breakdown.
+
+Aggregate across runs:
+
+```bash
+python script/aggregate_runs.py
+```
+
+See [NOMENCLATURE.md](NOMENCLATURE.md) for where every artifact lives and what
+names it.
+
+---
+
+## Layout
+
+```
+eval/run_batch.py           the single driver
+script/build_tasks.py       find migrations upstream, build and validate tasks
+script/generate_tasks.py    render a task bundle from a dataset row
+script/aggregate_runs.py    mean reward and pass@k across runs
+src/harness/utils/          docker_utils · run · tasks · gates · grading · airgap
+src/strands_agent/          the agent (upstream, adapted to run headless)
+templates/                  task.toml · Dockerfile · instruction · verifier
+docker/Dockerfile.agent     agent image, layered on MigrationBench's
+data/migrations.jsonl       the task-construction ledger
+```
+
+`tasks/` and `bundles/` are generated and not tracked. `build_tasks.py` rebuilds
+tasks from the ledger, which carries the frozen base and golden commit hashes.
+
+---
+
+## Licence
+
+Apache 2.0. Derived from
+[amazon-science/JavaMigration](https://github.com/amazon-science/JavaMigration);
+see `LICENSE` and `NOTICE`.
